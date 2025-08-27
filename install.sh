@@ -1,50 +1,49 @@
 #!/bin/bash
-# Installer/Uninstaller for auto git-pull cron job
 
-usage() {
-  echo "Usage: $0 [--remove]"
+echo "Auto Git-Pull Installer"
+
+# Detect repo path automatically
+REPO_PATH=$(pwd)
+
+# Confirm it's a Git repo
+if [ ! -d "$REPO_PATH/.git" ]; then
+  echo "Error: $REPO_PATH is not a Git repo."
   exit 1
-}
+fi
 
-if [ "$1" == "--remove" ]; then
-  echo "🗑 Removing auto-pull cron job..."
-  crontab -l | grep -v "git-auto-pull.sh" | crontab -
-  echo "✅ Cron job removed"
+echo "Found Git repo at $REPO_PATH"
+
+# Ask install or uninstall
+read -p "Do you want to [i]nstall or [u]ninstall the cron job? " choice
+
+if [[ "$choice" == "u" ]]; then
+  crontab -l | grep -v "cd $REPO_PATH && git pull" | crontab -
+  echo "Cron job uninstalled."
   exit 0
 fi
 
-echo "🚀 Auto Git-Pull Installer"
-
-# 1. Ask for repo path
-read -rp "Enter the full path to your repo: " REPO_PATH
-if [ ! -d "$REPO_PATH/.git" ]; then
-  echo "❌ Error: $REPO_PATH is not a Git repo."
+if [[ "$choice" != "i" ]]; then
+  echo "Invalid choice. Exiting."
   exit 1
 fi
 
-# 2. Ask for time
-read -rp "Enter the time to run daily (HH:MM, 24hr): " TIME
-HOUR=$(echo $TIME | cut -d: -f1)
-MIN=$(echo $TIME | cut -d: -f2)
+# Ask for schedule
+read -p "Enter the time for the daily pull (HH:MM, 24h format): " TIME
 
-# 3. Create the auto-pull script inside the repo
-SCRIPT_PATH="$REPO_PATH/git-auto-pull.sh"
+# Validate time format
+if [[ ! "$TIME" =~ ^([01]?[0-9]|2[0-3]):([0-5][0-9])$ ]]; then
+  echo "Invalid time format. Use HH:MM (24h). Example: 05:00"
+  exit 1
+fi
 
-cat <<'EOF' > "$SCRIPT_PATH"
-#!/bin/bash
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$SCRIPT_DIR" || exit 1
+HOUR=$(echo $TIME | cut -d: -f1 | sed 's/^0*//')
+MINUTE=$(echo $TIME | cut -d: -f2 | sed 's/^0*//')
 
-echo "===== Sync at $(date) =====" >> "$SCRIPT_DIR/git-auto-pull.log"
-git fetch --all >> "$SCRIPT_DIR/git-auto-pull.log" 2>&1
-git reset --hard origin/main >> "$SCRIPT_DIR/git-auto-pull.log" 2>&1
-EOF
+# Default to 0 if empty
+if [ -z "$HOUR" ]; then HOUR=0; fi
+if [ -z "$MINUTE" ]; then MINUTE=0; fi
 
-chmod +x "$SCRIPT_PATH"
+# Add to crontab
+( crontab -l 2>/dev/null; echo "$MINUTE $HOUR * * * cd $REPO_PATH && git pull >> /tmp/git-pull.log 2>&1" ) | crontab -
 
-# 4. Add cron job
-(crontab -l 2>/dev/null; echo "$MIN $HOUR * * * /bin/bash $SCRIPT_PATH") | crontab -
-
-echo "✅ Installer complete!"
-echo "➡️ Script saved at: $SCRIPT_PATH"
-echo "➡️ Cron job added: $TIME every day"
+echo "Cron job installed to run daily at $TIME"
